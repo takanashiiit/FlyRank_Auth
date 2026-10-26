@@ -53,13 +53,20 @@ async def public_info():
 
 @app.get("/protected/profile")
 async def profile(authorization: str | None = Header(default=None)):
-    # The header must look like: Authorization: Bearer <token>
+    # 1. Extract the token from "Authorization: Bearer <token>"
     if not authorization or not authorization.startswith("Bearer "):
         return JSONResponse(status_code=401, content={"error": "Access token required"})
 
-    token = authorization.split(" ")[1] if len(authorization.split(" ")) > 1 else ""
+    token = authorization.split(" ", 1)[1].strip()
     if not token:
         return JSONResponse(status_code=401, content={"error": "Access token required"})
 
-    # We are NOT verifying the token yet, only checking that one was sent
-    return {"message": "Token received (not verified yet)"}
+    try:
+        user = supabase.auth.get_user(token).user
+    except Exception:
+        return JSONResponse(status_code=401, content={"error": "Invalid or expired token"})
+
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Invalid or expired token"})
+
+    return {"id": user.id, "email": user.email, "created_at": str(user.created_at)}
