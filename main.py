@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, Body, Header
+from fastapi import FastAPI, Body, Header, Depends, HTTPException , Response
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from supabase import create_client
@@ -39,7 +39,7 @@ async def login(body: dict = Body(default={})):
     try:
         res = supabase.auth.sign_in_with_password({"email": email, "password": password})
     except Exception as e:
-        print("LOGIN ERROR:", e)
+
         return JSONResponse(status_code=401, content={"error": "Invalid login credentials"})
 
     return JSONResponse(status_code=200, content={
@@ -51,22 +51,44 @@ async def public_info():
     return {"message": "Welcome stranger! This info is public."}
 
 
-@app.get("/protected/profile")
-async def profile(authorization: str | None = Header(default=None)):
-    # 1. Extract the token from "Authorization: Bearer <token>"
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+
+
+async def get_current_user(authorization: str | None = Header(default=None)):
+    # The guard: runs before any route that uses it
     if not authorization or not authorization.startswith("Bearer "):
-        return JSONResponse(status_code=401, content={"error": "Access token required"})
+        raise HTTPException(status_code=401, detail="Access token required")
 
     token = authorization.split(" ", 1)[1].strip()
     if not token:
-        return JSONResponse(status_code=401, content={"error": "Access token required"})
+        raise HTTPException(status_code=401, detail="Access token required")
 
     try:
         user = supabase.auth.get_user(token).user
     except Exception:
-        return JSONResponse(status_code=401, content={"error": "Invalid or expired token"})
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     if not user:
-        return JSONResponse(status_code=401, content={"error": "Invalid or expired token"})
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+    return user  # handed to the route as "user"
+
+
+@app.get("/protected/profile")
+async def profile(user=Depends(get_current_user)):
     return {"id": user.id, "email": user.email, "created_at": str(user.created_at)}
+
+
+@app.get("/protected/dashboard")
+async def dashboard(user=Depends(get_current_user)):
+    return {"message": f"Welcome to your dashboard, {user.email}"}
+@app.post("/auth/logout")
+async def logout(user=Depends(get_current_user)):
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
+    return Response(status_code=204)  # 204 = success, no body
