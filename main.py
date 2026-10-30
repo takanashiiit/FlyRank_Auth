@@ -1,4 +1,5 @@
 import os
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from fastapi import FastAPI, Body, Header, Depends, HTTPException , Response
 from fastapi.responses import JSONResponse
@@ -57,14 +58,15 @@ async def http_exception_handler(request, exc):
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
 
-async def get_current_user(authorization: str | None = Header(default=None)):
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)):
     # The guard: runs before any route that uses it
-    if not authorization or not authorization.startswith("Bearer "):
+    if not credentials or not credentials.credentials.strip():
         raise HTTPException(status_code=401, detail="Access token required")
 
-    token = authorization.split(" ", 1)[1].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Access token required")
+    token = credentials.credentials.strip()
 
     try:
         user = supabase.auth.get_user(token).user
